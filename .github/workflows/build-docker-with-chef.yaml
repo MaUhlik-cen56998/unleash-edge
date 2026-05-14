@@ -26,7 +26,7 @@ on:
   workflow_dispatch:
 
 env:
-  DOCKERHUB_SLUG: unleashorg/unleash-edge
+  DOCKERHUB_SLUG: hayyu/unleash-edge
 
 permissions:
   id-token: write
