@@ -6,6 +6,7 @@ use http::{HeaderValue, header};
 use tracing::trace;
 
 const MAX_LOGGED_PAYLOAD_LEN: usize = 1_048_576;
+const METRICS_PAYLOAD_LOG_PATH: &str = "/client/metrics/edge";
 
 fn payload_to_log_string(body: &[u8]) -> String {
     if body.is_empty() {
@@ -26,9 +27,7 @@ pub async fn log_request_middleware(req: Request, next: Next) -> Response {
     let uri = parts.uri.clone();
     let mut headers = parts.headers.clone();
     let method = parts.method.clone();
-
-    let body_bytes = to_bytes(body, usize::MAX).await.unwrap_or_default();
-    let payload = payload_to_log_string(&body_bytes);
+    let should_log_payload = uri.path() == METRICS_PAYLOAD_LOG_PATH;
 
     headers.insert(
         header::AUTHORIZATION,
@@ -44,15 +43,36 @@ pub async fn log_request_middleware(req: Request, next: Next) -> Response {
             .unwrap_or_else(|| HeaderValue::from_str("No authorization header").unwrap()),
     );
 
-    let req = Request::from_parts(parts, Body::from(body_bytes));
+    let (req, payload) = if should_log_payload {
+        let body_bytes = to_bytes(body, usize::MAX).await.unwrap_or_default();
+        (
+            Request::from_parts(parts, Body::from(body_bytes.clone())),
+            Some(payload_to_log_string(&body_bytes)),
+        )
+    } else {
+        (Request::from_parts(parts, body), None)
+    };
+
     let res = next.run(req).await;
-    trace!(
-        "Request: uri=[{}], method=[{}], headers=[{:?}], payload=[{}], status=[{:?}]",
-        uri,
-        method,
-        headers,
-        payload,
-        res.status()
-    );
+
+    if let Some(payload) = payload {
+        trace!(
+            "Request: uri=[{}], method=[{}], headers=[{:?}], payload=[{}], status=[{:?}]",
+            uri,
+            method,
+            headers,
+            payload,
+            res.status()
+        );
+    } else {
+        trace!(
+            "Request: uri=[{}], method=[{}], headers=[{:?}], status=[{:?}]",
+            uri,
+            method,
+            headers,
+            res.status()
+        );
+    }
+
     res
 }
